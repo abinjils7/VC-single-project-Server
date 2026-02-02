@@ -39,3 +39,5 @@ pids
 *.pid
 *.seed
 *.pid.lock
+
+uploads
