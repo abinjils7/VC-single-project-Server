@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "main": "server.ts",
   "scripts": {
-    "start": "ts-node server.ts",
-    "dev": "nodemon server.ts",
-    "build": "tsc"
-  },
+  "build": "tsc",
+  "start": "node dist/server.js",
+  "dev": "ts-node server.ts"
+},
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
     "@types/multer": "^2.0.0",
