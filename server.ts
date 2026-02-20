@@ -19,7 +19,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "https://vc-single-project-server.onrender.com",
+    origin: "https://vc-single-project-client.vercel.app",
     credentials: true,
   }),
 );
