@@ -57,7 +57,7 @@ router.get(
       res.redirect("http://localhost:5173/home");
     } catch (error) {
       console.log(error);
-      res.redirect("http://localhost:5173/login?error=true");
+     res.redirect("https://your-vercel-app.vercel.app/login?error=true");
     }
   },
 );
