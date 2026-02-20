@@ -19,7 +19,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "https://vc-single-project-client.vercel.app",
+    origin: true,
     credentials: true,
   }),
 );
