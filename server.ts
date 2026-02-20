@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
-import connectDB from "./config/Db";
+import connectDB from "./config/Db.js";
 import cookieParser from "cookie-parser";
 
 dotenv.config();
