@@ -19,7 +19,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "https://vc-single-project-client-git-main-abinjils7s-projects.vercel.app",
+    origin: "https://vc-single-project-client-git-main-abinjils7s-projects.vercel.app/",
     credentials: true,
   }),
 );
