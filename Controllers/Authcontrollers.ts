@@ -5,7 +5,6 @@ import jwt from "jsonwebtoken";
 import { Request, Response } from "express";
 import Messege from "../Models/Messege";
 
-
 export const register = async function (req: Request, res: Response) {
   try {
     const userdata = req.body;
@@ -19,11 +18,47 @@ export const register = async function (req: Request, res: Response) {
 
     // 3️ Save user
     const user = new User(userdata);
+
+    // Generate Tokens immediately
+    const accessToken = jwt.sign(
+      { id: user._id.toString(), role: user.role },
+      process.env.JWT_ACCESS_SECRET as string,
+      { expiresIn: process.env.JWT_ACCESS_EXPIRES as any },
+    );
+
+    const refreshToken = jwt.sign(
+      { id: user._id.toString() },
+      process.env.JWT_REFRESH_SECRET as string,
+      { expiresIn: process.env.JWT_REFRESH_EXPIRES as any },
+    );
+
+    user.refreshToken = refreshToken;
     await user.save();
 
+    // Set Cookies
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const userObj = user.toObject();
+    // @ts-ignore
+    delete userObj.password;
+    // @ts-ignore
+    delete userObj.refreshToken;
+
     res.status(201).json({
-      message: "User registered successfully",
-      user,
+      message: "User registered and logged in successfully",
+      user: userObj,
     });
   } catch (error) {
     console.log(error);
@@ -41,6 +76,11 @@ export const login = async function (req: Request, res: Response) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    if (loggineduser.isBlocked) {
+      return res
+        .status(400)
+        .json({ message: "youre blocked please contact the admin" });
+    }
     if (!loggineduser.password) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
@@ -56,24 +96,19 @@ export const login = async function (req: Request, res: Response) {
       { expiresIn: process.env.JWT_ACCESS_EXPIRES as any },
     );
 
-    //  Refresh Token
     const refreshToken = jwt.sign(
       { id: loggineduser._id.toString() },
       process.env.JWT_REFRESH_SECRET as string,
       { expiresIn: process.env.JWT_REFRESH_EXPIRES as any },
     );
-
-    //  Save refresh token on USER DOCUMENT
     loggineduser.refreshToken = refreshToken;
     await loggineduser.save();
-
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: false,
       sameSite: "lax",
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
-
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: false,
@@ -130,8 +165,6 @@ export const changePassword = async (req: Request, res: Response) => {
       });
     }
 
-    // 2️ Prevent same password reuse
-    // We strictly know person.password exists here because of the check above
     const isSameAsOld = await bcrypt.compare(newPassword, person.password!);
 
     if (isSameAsOld) {
@@ -139,8 +172,6 @@ export const changePassword = async (req: Request, res: Response) => {
         message: "New password must be different from old password",
       });
     }
-
-    // 3️ Hash & save new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     person.password = hashedPassword;
     await person.save();
@@ -161,7 +192,6 @@ export const resetPassword = async (req: Request, res: Response) => {
         message: "Email and new password are required",
       });
     }
-
     const user = await User.findOne({ email });
 
     if (!user) {
@@ -169,7 +199,6 @@ export const resetPassword = async (req: Request, res: Response) => {
         message: "User not found",
       });
     }
-
     // Check if new password is same as old password
     if (user.password) {
       const isSamePassword = await bcrypt.compare(newpassword, user.password);
@@ -180,8 +209,6 @@ export const resetPassword = async (req: Request, res: Response) => {
         });
       }
     }
-
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newpassword, 10);
 
     user.password = hashedPassword;
@@ -222,34 +249,51 @@ export const subscribe = async (req: Request, res: Response) => {
   try {
     // @ts-ignore
     const userId = req.user?.id;
-    const { pitchLimit } = req.body;
+    const { pitchLimit, isFreeTrial } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (isFreeTrial) {
+      if (user.hasUsedFreeTrial) {
+        return res.status(400).json({ message: "Free trial already used" });
+      }
+      // 7 days free trial
+      const expireDate = new Date();
+      expireDate.setDate(expireDate.getDate() + 7);
+
+      user.pitchLimit = (user.pitchLimit || 0) + 2;
+      user.hasUsedFreeTrial = true;
+      user.isPremium = true;
+      user.subscriptionExpireDate = expireDate;
+
+      await user.save();
+
+      return res.status(200).json({
+        message: "Free trial activated successfully",
+        user,
+      });
+    }
 
     if (pitchLimit === undefined || pitchLimit === null) {
       return res.status(400).json({ message: "pitchLimit is required" });
     }
 
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
-
     // Calculate expiration date (30 days from now)
     const expireDate = new Date();
     expireDate.setDate(expireDate.getDate() + 30);
 
-    user.pitchLimit = Number(pitchLimit);
+    // Accumulate pitch limit instead of overwriting
+    user.pitchLimit = (user.pitchLimit || 0) + Number(pitchLimit);
     user.isPremium = true;
     user.subscriptionExpireDate = expireDate;
-
-    // Clear the old field if it exists in DB (though we removed it from schema, it might still be in the document if not strictly handled, but Mongoose usually ignores it if not in schema. However, we simply don't set it.)
-    // If we wanted to unset it explicitly we could use $unset, but with save() and updated schema it's handled on retrieval usually.
-    // The user asked to "remove the activeSubscriptionId" which implies schema change (done) and logic change (doing now).
 
     await user.save();
 
     res.status(200).json({
       message: "Subscription upgraded successfully",
-      user
+      user,
     });
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Internal server error" });
@@ -264,5 +308,44 @@ export const logout = async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const refreshToken = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.cookies;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Refresh Token is required" });
+    }
+
+    const payload = jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_SECRET as string,
+    ) as any;
+
+    const user = await User.findById(payload.id);
+
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(403).json({ message: "Invalid refresh token" });
+    }
+
+    const newAccessToken = jwt.sign(
+      { id: user._id.toString(), role: user.role },
+      process.env.JWT_ACCESS_SECRET as string,
+      { expiresIn: process.env.JWT_ACCESS_EXPIRES as any },
+    );
+
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: false, // Set to true in production
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.status(200).json({ accessToken: newAccessToken });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    res.status(403).json({ message: "Invalid or expired refresh token" });
   }
 };

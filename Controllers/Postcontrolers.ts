@@ -1,4 +1,5 @@
 import Post from "../Models/Post";
+import Report from "../Models/Report";
 import mongoose from "mongoose";
 import { Request, Response } from "express";
 
@@ -9,12 +10,10 @@ export const createPost = async (req: Request, res: Response) => {
     const { authorId, postId, content } = req.body;
     const postImage = req.file ? req.file.path : null;
 
+    console.log(req.body)
+
     const user = await User.findById(authorId);
     if (!user) return res.status(404).json({ message: "User not found" });
-
-    if (user.pitchLimit <= 0) {
-      return res.status(403).json({ message: "Limit exceeded coverage. Please upgrade your plan." });
-    }
 
     const newPost = new Post({
       authorId,
@@ -23,9 +22,6 @@ export const createPost = async (req: Request, res: Response) => {
       postImage,
     });
     await newPost.save();
-
-    user.pitchLimit -= 1;
-    await user.save();
 
     console.log(newPost);
     res.status(201).json(newPost);
@@ -44,7 +40,7 @@ export const getPosts = async (req: Request, res: Response) => {
 
     if (role) {
       const targetRole = role === "investor" ? "startup" : "investor";
-      const users = await User.find({ role: targetRole }).select("_id");
+      const users = await User.find({ role: { $in: [targetRole, "admin"] } }).select("_id");
       const userIds = users.map((u) => u._id);
       filter = { authorId: { $in: userIds } };
     }
@@ -52,6 +48,10 @@ export const getPosts = async (req: Request, res: Response) => {
     if (userId) {
       filter.authorId = userId;
     }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
 
     const posts = await Post.find(filter)
       .populate({
@@ -62,7 +62,9 @@ export const getPosts = async (req: Request, res: Response) => {
         path: "comments.userId",
         select: "name avatar",
       })
-      .sort({ createdAt: -1 }); // 🔥 newest first
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
     res.status(200).json(posts);
   } catch (error) {
@@ -175,5 +177,54 @@ export const deleteComment = async (req: Request, res: Response) => {
       message: "Error deleting comment",
       error: error.message,
     });
+  }
+};
+
+export const reportPost = async (req: Request, res: Response) => {
+  try {
+    const { postId } = req.params;
+    const { reporterId, reason, description } = req.body;
+
+    if (!reporterId) {
+      return res.status(400).json({ message: "Reporter ID is required" });
+    }
+
+    // Verify post exists
+    const post = await Post.findOne({ postId });
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const newReport = new Report({
+      reporterId,
+      postId,
+      postObjectId: post._id,
+      reason,
+      description
+    });
+
+    await newReport.save();
+
+    res.status(201).json({ message: "Report submitted successfully", report: newReport });
+  } catch (error) {
+    console.error("Error reporting post:", error);
+    res.status(500).json({ message: "Error reporting post", error });
+  }
+};
+
+export const deletePost = async (req: Request, res: Response) => {
+  try {
+    const { postId } = req.params;
+
+    const post = await Post.findOneAndDelete({ postId });
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    res.status(200).json({ message: "Post deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting post:", error);
+    res.status(500).json({ message: "Error deleting post", error: (error as Error).message });
   }
 };

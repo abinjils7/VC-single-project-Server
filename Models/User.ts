@@ -6,7 +6,7 @@ export interface IUser extends Document {
   googleId?: string;
   avatar?: string;
   password?: string;
-  role: "startup" | "investor";
+  role: "startup" | "investor" | "admin";
   displayName: string;
   description: string;
   category1: string;
@@ -18,6 +18,7 @@ export interface IUser extends Document {
   pitchLimit: number;
 
   isBlocked: boolean;
+  hasUsedFreeTrial?: boolean;
   refreshToken?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -43,7 +44,7 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ["startup", "investor"],
+      enum: ["startup", "investor", "admin"],
       required: true,
     },
 
@@ -86,6 +87,10 @@ const userSchema = new mongoose.Schema(
     refreshToken: {
       type: String,
       default: null,
+    },
+    hasUsedFreeTrial: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true },

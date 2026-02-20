@@ -30,5 +30,5 @@ export const sendOtpEmail = async (email: string) => {
 
   console.log("Email link", nodemailer.getTestMessageUrl(info));
 
-  return otp; 
+  return otp;
 };

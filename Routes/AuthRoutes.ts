@@ -7,6 +7,7 @@ import {
   getMe,
   subscribe,
   logout,
+  refreshToken,
 } from "../Controllers/Authcontrollers";
 import { authMiddleware } from "../Middlewares/authMiddleware";
 
@@ -19,5 +20,6 @@ router.post("/resetPassword", resetPassword);
 router.get("/me", authMiddleware, getMe);
 router.post("/subscribe", authMiddleware, subscribe);
 router.post("/logout", logout);
+router.post("/refresh", refreshToken);
 
 export default router;

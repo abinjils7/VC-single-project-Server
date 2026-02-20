@@ -11,8 +11,9 @@ passport.use(
       clientID: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
       callbackURL: "/auth/google/callback",
+      passReqToCallback: true,
     },
-    async (accessToken: string, refreshToken: string, profile: Profile, cb: VerifyCallback) => {
+    async (req: any, accessToken: string, refreshToken: string, profile: Profile, cb: VerifyCallback) => {
       try {
         let user = await User.findOne({ email: profile.emails?.[0].value });
 
@@ -24,13 +25,24 @@ passport.use(
           return cb(null, user);
         }
 
+        // Decode role from state
+        let role = "startup"; // Default
+        if (req.query.state) {
+          try {
+            const stateData = JSON.parse(Buffer.from(req.query.state as string, 'base64').toString());
+            if (stateData.role) role = stateData.role;
+          } catch (e) {
+            console.error("Failed to parse state for role", e);
+          }
+        }
+
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
           displayName: profile.displayName,
           email: profile.emails?.[0].value,
           avatar: profile.photos?.[0].value,
-          role: "startup",
+          role: role,
           description: "Signed up via Google",
           category1: "General",
           category2: "General",

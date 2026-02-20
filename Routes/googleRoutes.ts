@@ -5,14 +5,23 @@ import { Request, Response } from "express";
 
 const router = express.Router();
 
-router.get(
-  "/",
-  passport.authenticate("google", { scope: ["profile", "email"] }),
-);
+router.get("/", (req, res, next) => {
+  const { userRole } = req.query;
+  const role = userRole === "investor" ? "investor" : "startup";
+  const state = Buffer.from(JSON.stringify({ role })).toString("base64");
+
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    state,
+  })(req, res, next);
+});
 
 router.get(
   "/callback",
-  passport.authenticate("google", { session: false, failureRedirect: "/login" }),
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: "/login",
+  }),
   async (req: Request, res: Response) => {
     try {
       const user: any = req.user;
@@ -20,16 +29,15 @@ router.get(
       const accessToken = jwt.sign(
         { id: user._id.toString(), role: user.role },
         process.env.JWT_ACCESS_SECRET as string,
-        { expiresIn: process.env.JWT_ACCESS_EXPIRES as any }
+        { expiresIn: process.env.JWT_ACCESS_EXPIRES as any },
       );
 
       const refreshToken = jwt.sign(
         { id: user._id.toString() },
         process.env.JWT_REFRESH_SECRET as string,
-        { expiresIn: process.env.JWT_REFRESH_EXPIRES as any }
+        { expiresIn: process.env.JWT_REFRESH_EXPIRES as any },
       );
 
-      // Save refresh token to user
       user.refreshToken = refreshToken;
       await user.save();
 
@@ -37,7 +45,7 @@ router.get(
         httpOnly: true,
         secure: false, // Set to true in production
         sameSite: "lax",
-        maxAge:7*24*60*15 * 60 * 1000,
+        maxAge: 7 * 24 * 60 * 15 * 60 * 1000,
       });
 
       res.cookie("refreshToken", refreshToken, {
@@ -46,10 +54,7 @@ router.get(
         sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
-
-      // Redirect to frontend
-      res.redirect("http://localhost:5173/login?googleAuth=success");
-
+      res.redirect("http://localhost:5173/home");
     } catch (error) {
       console.log(error);
       res.redirect("http://localhost:5173/login?error=true");

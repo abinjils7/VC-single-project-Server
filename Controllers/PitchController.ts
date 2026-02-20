@@ -3,6 +3,7 @@ import Pitch from "../Models/Pitch";
 import User from "../Models/User";
 import Chat from "../Models/Chat";
 import Notification from "../Models/Notification";
+import { io } from "../server";
 
 export const createPitch = async (req: Request, res: Response) => {
     try {
@@ -51,11 +52,19 @@ export const createPitch = async (req: Request, res: Response) => {
 export const getPitchesForInvestor = async (req: Request, res: Response) => {
     try {
         const { investorId } = req.params;
+        console.log(`[PitchController] Fetching pitches for investor: ${investorId}`);
         const pitches = await Pitch.find({ toUserId: investorId })
             .populate("fromUserId", "name avatar displayName email category1 stage description")
             .sort({ createdAt: -1 });
+
+        console.log(`[PitchController] Found ${pitches.length} pitches`);
+        if (pitches.length > 0) {
+            console.log(`[PitchController] First pitch sample:`, JSON.stringify(pitches[0], null, 2));
+        }
+
         res.status(200).json(pitches);
     } catch (error) {
+        console.error("[PitchController] Error fetching pitches:", error);
         res.status(500).json({ message: "Error fetching pitches", error });
     }
 };
@@ -63,7 +72,7 @@ export const getPitchesForInvestor = async (req: Request, res: Response) => {
 export const updatePitchStatus = async (req: Request, res: Response) => {
     try {
         const { pitchId } = req.params;
-        const { status } = req.body; // "accepted" | "rejected"
+        const { status } = req.body;
 
         if (!["accepted", "rejected", "pending"].includes(status)) {
             return res.status(400).json({ message: "Invalid status" });
@@ -85,7 +94,6 @@ export const updatePitchStatus = async (req: Request, res: Response) => {
                 return res.status(403).json({ message: "Pitch limit exceeded. Please upgrade your plan." });
             }
 
-            // Decrement usage
             investor.pitchLimit -= 1;
             await investor.save();
         }
@@ -99,10 +107,7 @@ export const updatePitchStatus = async (req: Request, res: Response) => {
         if (!updatedPitch) {
             return res.status(404).json({ message: "Pitch not found" });
         }
-
-        // Logic for Accepted/Rejected
         if (status === "accepted") {
-            // 1. Check/Create Chat
             const existingChat = await Chat.findOne({
                 participants: { $all: [updatedPitch.fromUserId, updatedPitch.toUserId] }
             });
@@ -114,23 +119,23 @@ export const updatePitchStatus = async (req: Request, res: Response) => {
                     lastMessageTime: new Date()
                 });
             }
-
-            // 2. Notify Startup
-            await Notification.create({
+            const notification = await Notification.create({
                 userId: updatedPitch.fromUserId,
                 message: `Your pitch was ACCEPTED by ${(updatedPitch.toUserId as any).name}! A chat has been started.`,
                 type: "pitch_status",
                 relatedId: updatedPitch._id as string
             });
+            io.to(`notifications_${updatedPitch.fromUserId}`).emit("new_notification", notification);
 
         } else if (status === "rejected") {
             // Notify Startup
-            await Notification.create({
+            const notification = await Notification.create({
                 userId: updatedPitch.fromUserId,
                 message: `Your pitch was REJECTED by ${(updatedPitch.toUserId as any).name}.`,
                 type: "pitch_status",
                 relatedId: updatedPitch._id as string
             });
+            io.to(`notifications_${updatedPitch.fromUserId}`).emit("new_notification", notification);
         }
 
         res.status(200).json(updatedPitch);
